@@ -30,6 +30,77 @@ body {
   line-height: 1.5;
 }
 
+body.auth-pending .topbar,
+body.auth-pending .tabs,
+body.auth-pending .container {
+  display: none;
+}
+
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-screen[hidden] { display: none; }
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+}
+
+.auth-card h1 {
+  margin: 0 0 8px 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.auth-card p {
+  margin: 0 0 20px 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.auth-card label {
+  display: block;
+  margin-bottom: 14px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.auth-card input {
+  width: 100%;
+  margin-top: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 9px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.auth-card input:focus {
+  outline: none;
+  border-color: var(--accent-2);
+}
+
+.auth-card .btn {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.auth-error {
+  margin-top: 14px !important;
+  color: var(--danger) !important;
+}
+
 /* ---------- Top bar / progress ---------- */
 .topbar {
   position: sticky;
@@ -48,6 +119,15 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 32px;
+}
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .brand h1 {

@@ -6,12 +6,33 @@
   <title>Language Learning — Video Tracker</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="auth-pending">
+  <section class="auth-screen" id="authScreen">
+    <form class="auth-card" id="authForm">
+      <h1 id="authTitle">Sign in</h1>
+      <p id="authHint">Use your JapApp account to continue.</p>
+      <label>
+        Username
+        <input type="text" id="authUsername" autocomplete="username" required />
+      </label>
+      <label>
+        Password
+        <input type="password" id="authPassword" autocomplete="current-password" minlength="6" required />
+      </label>
+      <button type="submit" class="btn primary" id="authSubmit">Sign in</button>
+      <p class="auth-error" id="authError" hidden></p>
+    </form>
+  </section>
+
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
         <h1>Language Learning</h1>
         <span class="tagline">Watch. Track. Learn.</span>
+      </div>
+      <div class="user-menu">
+        <span id="currentUser"></span>
+        <button class="link-btn" id="logoutBtn" title="Sign out">logout</button>
       </div>
       <div class="stats">
         <div class="stat-row">

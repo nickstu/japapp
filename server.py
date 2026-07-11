@@ -2,12 +2,15 @@
 
 import json
 import os
+import secrets
 import sqlite3
 import sys
 from contextlib import closing
 from datetime import date
+from functools import wraps
+from hashlib import pbkdf2_hmac
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, make_response, request, send_from_directory
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "tools"))
@@ -18,8 +21,75 @@ from kanji_levels import compute_breakdown as kanji_breakdown  # noqa: E402
 
 DB_PATH = os.path.join(HERE, "videos.db")
 DEFAULT_GOAL_MINUTES = 30
+SESSION_COOKIE = "japapp_session"
+HASH_ITERATIONS = 260000
 
 app = Flask(__name__, static_folder=HERE, static_url_path="")
+
+
+def password_hash(password, salt=None):
+    salt = salt or secrets.token_hex(16)
+    digest = pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        bytes.fromhex(salt),
+        HASH_ITERATIONS,
+    ).hex()
+    return f"pbkdf2_sha256${HASH_ITERATIONS}${salt}${digest}"
+
+
+def verify_password(password, stored):
+    try:
+        algo, iterations, salt, expected = stored.split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        digest = pbkdf2_hmac(
+            "sha256",
+            password.encode("utf-8"),
+            bytes.fromhex(salt),
+            int(iterations),
+        ).hex()
+        return secrets.compare_digest(digest, expected)
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def user_count(db):
+    return db.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+
+
+def current_user():
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    with closing(get_db()) as db:
+        return db.execute(
+            "SELECT id, username FROM users WHERE session_token=?",
+            (token,),
+        ).fetchone()
+
+
+def require_auth(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user = current_user()
+        if not user:
+            return jsonify({"error": "authentication required"}), 401
+        request.current_user = user
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def set_session_cookie(response, token):
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        httponly=True,
+        samesite="Lax",
+        secure=False,
+        max_age=60 * 60 * 24 * 30,
+    )
+    return response
 
 def _row_to_video(row):
     """Convert a sqlite3.Row into a dict, parsing the kanji_breakdown JSON blob."""
@@ -103,6 +173,13 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_started ON watch_sessions(started_at DESC);
         CREATE INDEX IF NOT EXISTS idx_sessions_video ON watch_sessions(video_id);
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            session_token TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         """)
         # Idempotent migrations for older installs.
         if not _column_exists(db, "videos", "last_position_seconds"):
@@ -150,7 +227,74 @@ def index():
     return send_from_directory(HERE, "index.html")
 
 
+@app.route("/api/auth/status")
+def auth_status():
+    with closing(get_db()) as db:
+        has_user = user_count(db) > 0
+    user = current_user() if has_user else None
+    return jsonify({
+        "has_user": has_user,
+        "authenticated": bool(user),
+        "username": user["username"] if user else None,
+    })
+
+
+@app.route("/api/auth/register", methods=["POST"])
+def register():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    if not username:
+        return jsonify({"error": "username required"}), 400
+    if len(password) < 6:
+        return jsonify({"error": "password must be at least 6 characters"}), 400
+
+    token = secrets.token_urlsafe(32)
+    with closing(get_db()) as db:
+        if user_count(db) > 0:
+            return jsonify({"error": "user already exists"}), 409
+        db.execute(
+            "INSERT INTO users (id, username, password_hash, session_token) VALUES (1, ?, ?, ?)",
+            (username, password_hash(password), token),
+        )
+        db.commit()
+    response = jsonify({"ok": True, "username": username})
+    return set_session_cookie(response, token)
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    with closing(get_db()) as db:
+        row = db.execute(
+            "SELECT id, username, password_hash FROM users WHERE username=?",
+            (username,),
+        ).fetchone()
+        if not row or not verify_password(password, row["password_hash"]):
+            return jsonify({"error": "invalid username or password"}), 401
+        token = secrets.token_urlsafe(32)
+        db.execute("UPDATE users SET session_token=? WHERE id=?", (token, row["id"]))
+        db.commit()
+    response = jsonify({"ok": True, "username": row["username"]})
+    return set_session_cookie(response, token)
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def logout():
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        with closing(get_db()) as db:
+            db.execute("UPDATE users SET session_token=NULL WHERE session_token=?", (token,))
+            db.commit()
+    response = make_response(jsonify({"ok": True}))
+    response.delete_cookie(SESSION_COOKIE)
+    return response
+
+
 @app.route("/api/videos", methods=["GET"])
+@require_auth
 def list_videos():
     with closing(get_db()) as db:
         rows = db.execute("SELECT * FROM videos ORDER BY added_at DESC").fetchall()
@@ -158,6 +302,7 @@ def list_videos():
 
 
 @app.route("/api/videos", methods=["POST"])
+@require_auth
 def add_video():
     data = request.get_json(silent=True) or {}
     vid = data.get("id")
@@ -201,6 +346,7 @@ def add_video():
 
 
 @app.route("/api/videos/<vid>", methods=["DELETE"])
+@require_auth
 def delete_video(vid):
     with closing(get_db()) as db:
         cur = db.execute("SELECT watched_seconds FROM videos WHERE id=?", (vid,)).fetchone()
@@ -212,6 +358,7 @@ def delete_video(vid):
 
 
 @app.route("/api/videos/<vid>/watch", methods=["POST"])
+@require_auth
 def add_watch_time(vid):
     data = request.get_json(silent=True) or {}
     try:
@@ -260,6 +407,7 @@ def add_watch_time(vid):
 
 
 @app.route("/api/history")
+@require_auth
 def list_history():
     limit = max(1, min(200, int(request.args.get("limit", 100))))
     with closing(get_db()) as db:
@@ -278,6 +426,7 @@ def list_history():
 
 
 @app.route("/api/videos/<vid>/rate", methods=["POST"])
+@require_auth
 def rate_video(vid):
     """Fetch Japanese subtitles and compute a JLPT-kanji-level breakdown."""
     with closing(get_db()) as db:
@@ -329,6 +478,7 @@ def rate_video(vid):
 
 
 @app.route("/api/search")
+@require_auth
 def search_endpoint():
     q = (request.args.get("q") or "").strip()
     if not q:
@@ -352,6 +502,7 @@ def search_endpoint():
 
 
 @app.route("/api/stats")
+@require_auth
 def stats():
     today = date.today().isoformat()
     with closing(get_db()) as db:
@@ -366,6 +517,7 @@ def stats():
 
 
 @app.route("/api/goal", methods=["POST"])
+@require_auth
 def set_goal():
     data = request.get_json(silent=True) or {}
     try:
@@ -384,6 +536,7 @@ def set_goal():
 
 
 @app.route("/api/reset", methods=["POST"])
+@require_auth
 def reset_watch_time():
     with closing(get_db()) as db:
         db.execute("UPDATE videos SET watched_seconds=0, last_position_seconds=NULL")

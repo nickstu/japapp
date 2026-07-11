@@ -5,6 +5,10 @@
 // ============================================================
 
 const API = {
+  authStatus:  ()                                  => fetchJSON('/api/auth/status'),
+  register:    (body)                              => fetchJSON('/api/auth/register', { method: 'POST', body }),
+  login:       (body)                              => fetchJSON('/api/auth/login', { method: 'POST', body }),
+  logout:      ()                                  => fetchJSON('/api/auth/logout', { method: 'POST' }),
   listVideos:  ()                                  => fetchJSON('/api/videos'),
   addVideo:    (body)                              => fetchJSON('/api/videos', { method: 'POST', body }),
   removeVideo: (id)                                => fetch(`/api/videos/${id}`, { method: 'DELETE' }),
@@ -31,9 +35,34 @@ async function fetchJSON(url, { method = 'GET', body } = {}) {
     const err = new Error(msg);
     err.status = res.status;
     err.data = data;
+    if (res.status === 401 && !url.startsWith('/api/auth/')) showAuth(true);
     throw err;
   }
   return data;
+}
+
+let authMode = 'login';
+
+function configureAuth(status) {
+  authMode = status.has_user ? 'login' : 'register';
+  const isSetup = authMode === 'register';
+  document.getElementById('authTitle').textContent = isSetup ? 'Create your account' : 'Sign in';
+  document.getElementById('authHint').textContent = isSetup
+    ? 'No user exists yet. Create the first account to protect this app.'
+    : 'Use your JapApp account to continue.';
+  document.getElementById('authSubmit').textContent = isSetup ? 'Create account' : 'Sign in';
+  document.getElementById('authPassword').autocomplete = isSetup ? 'new-password' : 'current-password';
+}
+
+function showAuth(show, status = null) {
+  if (status) configureAuth(status);
+  document.body.classList.toggle('auth-pending', show);
+  document.getElementById('authScreen').hidden = !show;
+  if (show) setTimeout(() => document.getElementById('authUsername').focus(), 50);
+}
+
+function setSignedInUser(username) {
+  document.getElementById('currentUser').textContent = username ? `Signed in as ${username}` : '';
 }
 
 // ---------- Utilities ----------
@@ -586,6 +615,38 @@ document.querySelectorAll('.tab').forEach(tab => {
 });
 
 // ---------- Forms ----------
+document.getElementById('authForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const btn = document.getElementById('authSubmit');
+  const error = document.getElementById('authError');
+  error.hidden = true;
+  btn.disabled = true;
+  btn.textContent = authMode === 'register' ? 'Creating...' : 'Signing in...';
+  try {
+    const result = authMode === 'register'
+      ? await API.register({ username, password })
+      : await API.login({ username, password });
+    setSignedInUser(result.username);
+    showAuth(false);
+    await Promise.all([refreshVideos(), refreshStats()]);
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = authMode === 'register' ? 'Create account' : 'Sign in';
+  }
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await API.logout();
+  setSignedInUser('');
+  const status = await API.authStatus();
+  showAuth(true, status);
+});
+
 document.getElementById('addVideoBtn').addEventListener('click', () => {
   document.getElementById('addForm').reset();
   openModal(addModal);
@@ -677,8 +738,17 @@ window.addEventListener('pagehide', () => {
 // ---------- Init ----------
 (async function init() {
   try {
+    const status = await API.authStatus();
+    configureAuth(status);
+    if (!status.authenticated) {
+      showAuth(true, status);
+      return;
+    }
+    setSignedInUser(status.username);
+    showAuth(false);
     await Promise.all([refreshVideos(), refreshStats()]);
   } catch (err) {
     toast(`Failed to load: ${err.message}`, 'error');
+    showAuth(true);
   }
 })();
