@@ -19,7 +19,7 @@ from youtube_search import search as yt_search, normalize as yt_normalize  # noq
 from youtube_subtitles import get_info, fetch as fetch_subs, vtt_to_text  # noqa: E402
 from kanji_levels import compute_breakdown as kanji_breakdown  # noqa: E402
 
-DB_PATH = os.path.join(HERE, "videos.db")
+DB_PATH = os.environ.get("DB_PATH", os.path.join(HERE, "videos.db"))
 DEFAULT_GOAL_MINUTES = 30
 SESSION_COOKIE = "japapp_session"
 HASH_ITERATIONS = 260000
@@ -546,7 +546,10 @@ def reset_watch_time():
     return jsonify({"ok": True})
 
 
+init_db()
+
+
 if __name__ == "__main__":
-    init_db()
-    print("Open http://127.0.0.1:8000")
-    app.run(host="127.0.0.1", port=8000, debug=False)
+    port = int(os.environ.get("PORT", "8000"))
+    print(f"Open http://127.0.0.1:{port}")
+    app.run(host="127.0.0.1", port=port, debug=False)
