@@ -29,7 +29,16 @@ async function fetchJSON(url, { method = 'GET', body } = {}) {
   }
   const res = await fetch(url, opts);
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = {
+        error: `Non-JSON response (${res.status}): ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()}`,
+      };
+    }
+  }
   if (!res.ok) {
     const msg = (data && data.error) || `HTTP ${res.status}`;
     const err = new Error(msg);

@@ -5,12 +5,14 @@ import os
 import secrets
 import sqlite3
 import sys
+import traceback
 from contextlib import closing
 from datetime import date
 from functools import wraps
 from hashlib import pbkdf2_hmac
 
 from flask import Flask, jsonify, make_response, request, send_from_directory
+from werkzeug.exceptions import HTTPException
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "tools"))
@@ -25,6 +27,22 @@ SESSION_COOKIE = "japapp_session"
 HASH_ITERATIONS = 260000
 
 app = Flask(__name__, static_folder=HERE, static_url_path="")
+
+
+@app.errorhandler(Exception)
+def verbose_json_error(error):
+    if isinstance(error, HTTPException):
+        return jsonify({
+            "error": error.description,
+            "type": error.__class__.__name__,
+            "status": error.code,
+        }), error.code
+    app.logger.exception("Unhandled server error")
+    return jsonify({
+        "error": str(error),
+        "type": error.__class__.__name__,
+        "traceback": traceback.format_exc(),
+    }), 500
 
 
 def password_hash(password, salt=None):
