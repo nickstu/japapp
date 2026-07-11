@@ -239,6 +239,36 @@ def find_japanese_subtitle_url(info):
     return None
 
 
+def save_rating_from_text(vid, text, subtitle_kind):
+    if not text.strip():
+        return jsonify({"error": "transcript text is empty"}), 422
+
+    breakdown = kanji_breakdown(text)
+    if breakdown["total_kanji"] == 0:
+        return jsonify({"error": "transcript contains no kanji"}), 422
+
+    score = breakdown["difficulty_score"]
+    band = breakdown["difficulty_band"]
+
+    with closing(get_db()) as db:
+        db.execute(
+            """UPDATE videos SET
+                 level_score=?, level_band_en=?, level_band_jp=NULL,
+                 level_rated_at=datetime('now'),
+                 kanji_breakdown=?
+               WHERE id=?""",
+            (score, band, json.dumps(breakdown, ensure_ascii=False), vid),
+        )
+        db.commit()
+    return jsonify({
+        "difficulty_band": band,
+        "difficulty_score": score,
+        "subtitle_kind": subtitle_kind,
+        "chars_scored": len(text),
+        "kanji_breakdown": breakdown,
+    })
+
+
 # ---------- Routes ----------
 @app.route("/")
 def index():
@@ -469,30 +499,22 @@ def rate_video(vid):
     if not text.strip():
         return jsonify({"error": "subtitle text was empty after cleanup"}), 422
 
-    breakdown = kanji_breakdown(text)
-    if breakdown["total_kanji"] == 0:
-        return jsonify({"error": "transcript contains no kanji"}), 422
+    return save_rating_from_text(vid, text, kind)
 
-    score = breakdown["difficulty_score"]    # ~1.0 – 6.0 (higher = harder)
-    band = breakdown["difficulty_band"]      # "N5" … "N1+"
+
+@app.route("/api/videos/<vid>/rate-text", methods=["POST"])
+@require_auth
+def rate_video_text(vid):
+    """Compute and save a rating from transcript text pasted by the user."""
+    data = request.get_json(silent=True) or {}
+    text = data.get("text") or ""
 
     with closing(get_db()) as db:
-        db.execute(
-            """UPDATE videos SET
-                 level_score=?, level_band_en=?, level_band_jp=NULL,
-                 level_rated_at=datetime('now'),
-                 kanji_breakdown=?
-               WHERE id=?""",
-            (score, band, json.dumps(breakdown, ensure_ascii=False), vid),
-        )
-        db.commit()
-    return jsonify({
-        "difficulty_band": band,
-        "difficulty_score": score,
-        "subtitle_kind": kind,
-        "chars_scored": len(text),
-        "kanji_breakdown": breakdown,
-    })
+        row = db.execute("SELECT id FROM videos WHERE id=?", (vid,)).fetchone()
+    if not row:
+        return jsonify({"error": "not found"}), 404
+
+    return save_rating_from_text(vid, text, "pasted")
 
 
 @app.route("/api/search")

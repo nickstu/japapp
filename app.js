@@ -14,6 +14,7 @@ const API = {
   removeVideo: (id)                                => fetch(`/api/videos/${id}`, { method: 'DELETE' }),
   watchTime:   (id, seconds, position, token)      => fetchJSON(`/api/videos/${id}/watch`, { method: 'POST', body: { seconds, position, session_token: token } }),
   rateVideo:   (id)                                => fetchJSON(`/api/videos/${id}/rate`, { method: 'POST' }),
+  rateText:    (id, text)                          => fetchJSON(`/api/videos/${id}/rate-text`, { method: 'POST', body: { text } }),
   search:      (q, max)                            => fetchJSON(`/api/search?q=${encodeURIComponent(q)}&max=${max}`),
   stats:       ()                                  => fetchJSON('/api/stats'),
   setGoal:     (minutes)                           => fetchJSON('/api/goal', { method: 'POST', body: { minutes } }),
@@ -400,9 +401,10 @@ document.addEventListener('click', async (e) => {
       toast(`Difficulty ${s10Txt}/10 · ${b.total_kanji} kanji, ${b.unique_kanji} unique (${r.subtitle_kind} subs)`, 'success');
       await refreshVideos();
     } catch (err) {
-      toast(`Rate failed: ${err.message}`, 'error');
+      toast('Automatic rating failed. Paste transcript to rate manually.', 'error');
       btn.disabled = false;
       btn.innerHTML = prevHTML;
+      openTranscriptModal(id, err.message);
     }
   } else if (action === 'add') {
     const card = btn.closest('.video-card');
@@ -544,6 +546,18 @@ async function flushPending() {
 const playerModal = document.getElementById('playerModal');
 const addModal = document.getElementById('addModal');
 const goalModal = document.getElementById('goalModal');
+const transcriptModal = document.getElementById('transcriptModal');
+let transcriptVideoId = null;
+
+function openTranscriptModal(videoId, reason = '') {
+  transcriptVideoId = videoId;
+  document.getElementById('transcriptForm').reset();
+  document.getElementById('transcriptError').textContent = reason
+    ? `Automatic transcript fetch failed: ${reason}`
+    : '';
+  openModal(transcriptModal);
+  setTimeout(() => document.getElementById('transcriptText').focus(), 50);
+}
 
 async function openPlayer(videoId) {
   // Resolve metadata from the local cache; if the video isn't in /api/videos
@@ -605,6 +619,7 @@ document.addEventListener('keydown', (e) => {
   if (!playerModal.hidden) closePlayer();
   else if (!addModal.hidden) closeModal(addModal);
   else if (!goalModal.hidden) closeModal(goalModal);
+  else if (!transcriptModal.hidden) closeModal(transcriptModal);
 });
 
 // ---------- Tabs ----------
@@ -696,6 +711,30 @@ document.getElementById('goalForm').addEventListener('submit', async (e) => {
     await API.setGoal(mins);
     await refreshStats();
     closeModal(goalModal);
+  }
+});
+
+document.getElementById('transcriptForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!transcriptVideoId) return;
+  const text = document.getElementById('transcriptText').value.trim();
+  const btn = document.getElementById('transcriptSubmit');
+  btn.disabled = true;
+  btn.textContent = 'Rating...';
+  try {
+    const r = await API.rateText(transcriptVideoId, text);
+    const b = r.kanji_breakdown;
+    const s10 = difficultyOnTen(r.difficulty_score);
+    const s10Txt = s10 != null ? s10.toFixed(1) : '?';
+    toast(`Difficulty ${s10Txt}/10 · ${b.total_kanji} kanji, ${b.unique_kanji} unique (pasted transcript)`, 'success');
+    closeModal(transcriptModal);
+    transcriptVideoId = null;
+    await refreshVideos();
+  } catch (err) {
+    document.getElementById('transcriptError').textContent = `Transcript rating failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Rate transcript';
   }
 });
 

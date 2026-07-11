@@ -632,9 +632,33 @@ body.auth-pending .container {
   font-family: inherit;
 }
 
+.form-modal textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  margin-top: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  font-family: inherit;
+}
+
 .form-modal input:focus {
   outline: none;
   border-color: var(--accent-2);
+}
+
+.form-modal textarea:focus {
+  outline: none;
+  border-color: var(--accent-2);
+}
+
+.transcript-modal {
+  max-width: 640px;
 }
 
 .form-actions {
