@@ -246,8 +246,8 @@ def register():
     password = data.get("password") or ""
     if not username:
         return jsonify({"error": "username required"}), 400
-    if len(password) < 6:
-        return jsonify({"error": "password must be at least 6 characters"}), 400
+    if not password:
+        return jsonify({"error": "password required"}), 400
 
     token = secrets.token_urlsafe(32)
     with closing(get_db()) as db:
