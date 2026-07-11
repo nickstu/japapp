@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Language Learning — Video Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>Language Learning</h1>
+        <span class="tagline">Watch. Track. Learn.</span>
+      </div>
+      <div class="stats">
+        <div class="stat-row">
+          <span class="stat-label">Today</span>
+          <span class="stat-value" id="todayTime">0m</span>
+          <span class="stat-goal">/ <span id="dailyGoal">30m</span></span>
+          <button class="link-btn" id="editGoalBtn" title="Edit daily goal">edit</button>
+        </div>
+        <div class="bar">
+          <div class="bar-fill" id="dailyBarFill"></div>
+        </div>
+        <div class="stat-row stat-row-secondary">
+          <span class="stat-label">All time</span>
+          <span class="stat-value" id="totalTime">0m</span>
+          <button class="link-btn danger" id="resetBtn" title="Reset all tracked time">reset</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <div class="tabs-inner">
+      <button class="tab active" data-tab="collection">My Collection</button>
+      <button class="tab" data-tab="search">Search</button>
+      <button class="tab" data-tab="history">Watch History</button>
+    </div>
+  </nav>
+
+  <main class="container">
+    <!-- Collection tab -->
+    <section id="collectionPanel" class="tab-panel active">
+      <div class="toolbar">
+        <h2>Your videos</h2>
+        <button class="btn" id="addVideoBtn">+ Add by URL</button>
+      </div>
+      <section class="video-grid" id="videoGrid"></section>
+      <p class="empty-hint" id="emptyHint" hidden>
+        No videos yet. Use the <strong>Search</strong> tab or <strong>+ Add by URL</strong>.
+      </p>
+    </section>
+
+    <!-- Search tab -->
+    <section id="searchPanel" class="tab-panel">
+      <div class="toolbar">
+        <form id="searchForm" class="search-form">
+          <input type="text" id="searchInput" placeholder="Search YouTube (e.g. easy japanese)" required />
+          <input type="number" id="searchMax" value="20" min="1" max="50" title="Max results" />
+          <button type="submit" class="btn primary" id="searchSubmit">Search</button>
+        </form>
+      </div>
+      <p class="empty-hint" id="searchHint">Type a query above to search YouTube.</p>
+      <section class="video-grid" id="searchGrid"></section>
+    </section>
+
+    <!-- History tab -->
+    <section id="historyPanel" class="tab-panel">
+      <div class="toolbar">
+        <h2>Watch history</h2>
+        <span class="muted" id="historyCount"></span>
+      </div>
+      <ul class="history-list" id="historyList"></ul>
+      <p class="empty-hint" id="historyEmpty" hidden>No watch sessions yet — play a video to start tracking.</p>
+    </section>
+  </main>
+
+  <!-- Player modal -->
+  <div class="modal" id="playerModal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-content player-modal">
+      <button class="modal-close" data-close aria-label="Close">&times;</button>
+      <div id="playerContainer" class="player-container">
+        <div id="ytPlayer"></div>
+      </div>
+      <div class="player-meta">
+        <h3 id="playerTitle"></h3>
+        <div class="player-stats">
+          <span>This session: <strong id="sessionTime">0s</strong></span>
+          <span>This video total: <strong id="videoTotalTime">0m</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add video modal -->
+  <div class="modal" id="addModal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-content form-modal">
+      <button class="modal-close" data-close aria-label="Close">&times;</button>
+      <h3>Add a video by URL</h3>
+      <form id="addForm">
+        <label>
+          YouTube URL or ID
+          <input type="text" id="videoUrl" placeholder="https://youtube.com/watch?v=..." required />
+        </label>
+        <p class="form-hint">Title, channel, thumbnail, and language are fetched automatically.</p>
+        <div class="form-actions">
+          <button type="button" class="btn" data-close>Cancel</button>
+          <button type="submit" class="btn primary" id="addSubmit">Add</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit goal modal -->
+  <div class="modal" id="goalModal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-content form-modal">
+      <button class="modal-close" data-close aria-label="Close">&times;</button>
+      <h3>Daily goal</h3>
+      <form id="goalForm">
+        <label>
+          Minutes per day
+          <input type="number" id="goalMinutes" min="1" max="600" required />
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn" data-close>Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script src="app.js"></script>
+</body>
+</html>
