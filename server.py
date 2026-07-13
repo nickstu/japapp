@@ -200,6 +200,7 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS memory_texts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL DEFAULT '',
             japanese_text TEXT NOT NULL,
             translation TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -212,6 +213,8 @@ def init_db():
             db.execute("ALTER TABLE videos ADD COLUMN last_position_seconds REAL")
         if not _column_exists(db, "videos", "kanji_breakdown"):
             db.execute("ALTER TABLE videos ADD COLUMN kanji_breakdown TEXT")
+        if not _column_exists(db, "memory_texts", "title"):
+            db.execute("ALTER TABLE memory_texts ADD COLUMN title TEXT NOT NULL DEFAULT ''")
         db.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES ('daily_goal_minutes', ?)",
             (str(DEFAULT_GOAL_MINUTES),),
@@ -371,8 +374,11 @@ def list_memory_texts():
 @require_auth
 def add_memory_text():
     data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
     japanese = (data.get("japanese_text") or "").strip()
     translation = (data.get("translation") or "").strip()
+    if not title:
+        return jsonify({"error": "title required"}), 400
     if not japanese:
         return jsonify({"error": "Japanese text required"}), 400
     if not translation:
@@ -380,8 +386,8 @@ def add_memory_text():
 
     with closing(get_db()) as db:
         cur = db.execute(
-            "INSERT INTO memory_texts (japanese_text, translation) VALUES (?, ?)",
-            (japanese, translation),
+            "INSERT INTO memory_texts (title, japanese_text, translation) VALUES (?, ?, ?)",
+            (title, japanese, translation),
         )
         db.commit()
         row = db.execute("SELECT * FROM memory_texts WHERE id=?", (cur.lastrowid,)).fetchone()

@@ -329,6 +329,7 @@ body.auth-pending .container {
   margin-bottom: 14px;
 }
 
+.memory-form input,
 .memory-form textarea {
   width: 100%;
   margin-top: 4px;
@@ -343,6 +344,11 @@ body.auth-pending .container {
   resize: vertical;
 }
 
+.memory-form input {
+  resize: none;
+}
+
+.memory-form input:focus,
 .memory-form textarea:focus {
   outline: none;
   border-color: var(--accent-2);
@@ -369,11 +375,18 @@ body.auth-pending .container {
   transform: translateY(-1px);
 }
 
-.memory-card-text {
+.memory-card-title {
   font-size: 16px;
+  font-weight: 600;
   line-height: 1.55;
   white-space: pre-wrap;
   padding-right: 28px;
+}
+
+.memory-card-text {
+  margin-top: 8px;
+  color: var(--accent);
+  font-size: 12px;
 }
 
 .memory-card-translation {

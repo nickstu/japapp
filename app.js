@@ -308,6 +308,7 @@ function memoryCard(item) {
   const accuracy = practiced ? Math.round((correct / practiced) * 100) : null;
   card.innerHTML = `
     <button class="icon-btn memory-delete" data-action="remove-memory" data-id="${item.id}" title="Remove">&times;</button>
+    <div class="memory-card-title"></div>
     <div class="memory-card-text"></div>
     <div class="memory-card-translation"></div>
     <div class="memory-card-meta">
@@ -315,7 +316,8 @@ function memoryCard(item) {
       <span>${accuracy == null ? '' : `${accuracy}%`}</span>
     </div>
   `;
-  card.querySelector('.memory-card-text').textContent = item.japanese_text;
+  card.querySelector('.memory-card-title').textContent = item.title || 'Untitled text';
+  card.querySelector('.memory-card-text').textContent = 'Recall original Japanese';
   card.querySelector('.memory-card-translation').textContent = item.translation;
   card.addEventListener('click', (e) => {
     if (e.target.closest('[data-action]')) return;
@@ -755,13 +757,14 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 
 document.getElementById('memoryForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const title = document.getElementById('memoryTitle').value.trim();
   const japanese = document.getElementById('memoryJapanese').value.trim();
   const translation = document.getElementById('memoryTranslation').value.trim();
   const btn = document.getElementById('memorySubmit');
   btn.disabled = true;
   btn.textContent = 'Saving...';
   try {
-    await API.addMemory({ japanese_text: japanese, translation });
+    await API.addMemory({ title, japanese_text: japanese, translation });
     document.getElementById('memoryForm').reset();
     await refreshMemory();
     toast('Text saved', 'success');
@@ -847,7 +850,7 @@ document.getElementById('practiceForm').addEventListener('submit', async (e) => 
   const answer = document.getElementById('practiceAnswer').value;
   const correct = normalizeRecallText(answer) === normalizeRecallText(item.japanese_text);
   const result = document.getElementById('practiceResult');
-  result.textContent = correct ? 'Correct.' : `Not yet. Original: ${item.japanese_text}`;
+  result.textContent = correct ? 'Correct.' : 'Not yet. Try again, using the translation as your hint.';
   result.className = `form-hint ${correct ? 'success-text' : 'error-text'}`;
   await API.practiceMemory(item.id, correct);
   await refreshMemory();
