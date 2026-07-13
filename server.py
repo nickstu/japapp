@@ -198,6 +198,14 @@ def init_db():
             session_token TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS memory_texts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            japanese_text TEXT NOT NULL,
+            translation TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            practiced_count INTEGER NOT NULL DEFAULT 0,
+            correct_count INTEGER NOT NULL DEFAULT 0
+        );
         """)
         # Idempotent migrations for older installs.
         if not _column_exists(db, "videos", "last_position_seconds"):
@@ -347,6 +355,66 @@ def list_videos():
     with closing(get_db()) as db:
         rows = db.execute("SELECT * FROM videos ORDER BY added_at DESC").fetchall()
     return jsonify([_row_to_video(r) for r in rows])
+
+
+@app.route("/api/memory-texts", methods=["GET"])
+@require_auth
+def list_memory_texts():
+    with closing(get_db()) as db:
+        rows = db.execute(
+            "SELECT * FROM memory_texts ORDER BY created_at DESC, id DESC"
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/memory-texts", methods=["POST"])
+@require_auth
+def add_memory_text():
+    data = request.get_json(silent=True) or {}
+    japanese = (data.get("japanese_text") or "").strip()
+    translation = (data.get("translation") or "").strip()
+    if not japanese:
+        return jsonify({"error": "Japanese text required"}), 400
+    if not translation:
+        return jsonify({"error": "translation required"}), 400
+
+    with closing(get_db()) as db:
+        cur = db.execute(
+            "INSERT INTO memory_texts (japanese_text, translation) VALUES (?, ?)",
+            (japanese, translation),
+        )
+        db.commit()
+        row = db.execute("SELECT * FROM memory_texts WHERE id=?", (cur.lastrowid,)).fetchone()
+    return jsonify(dict(row)), 201
+
+
+@app.route("/api/memory-texts/<int:item_id>", methods=["DELETE"])
+@require_auth
+def delete_memory_text(item_id):
+    with closing(get_db()) as db:
+        db.execute("DELETE FROM memory_texts WHERE id=?", (item_id,))
+        db.commit()
+    return "", 204
+
+
+@app.route("/api/memory-texts/<int:item_id>/practice", methods=["POST"])
+@require_auth
+def record_memory_practice(item_id):
+    data = request.get_json(silent=True) or {}
+    correct = 1 if data.get("correct") else 0
+    with closing(get_db()) as db:
+        res = db.execute(
+            """UPDATE memory_texts
+               SET practiced_count = practiced_count + 1,
+                   correct_count = correct_count + ?
+               WHERE id=?""",
+            (correct, item_id),
+        )
+        if res.rowcount == 0:
+            return jsonify({"error": "not found"}), 404
+        db.commit()
+        row = db.execute("SELECT * FROM memory_texts WHERE id=?", (item_id,)).fetchone()
+    return jsonify(dict(row))
 
 
 @app.route("/api/videos", methods=["POST"])

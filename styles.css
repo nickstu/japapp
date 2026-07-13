@@ -302,6 +302,116 @@ body.auth-pending .container {
   border-color: var(--accent-2);
 }
 
+/* ---------- Memory home ---------- */
+.memory-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.memory-entry,
+.memory-list-wrap {
+  min-width: 0;
+}
+
+.memory-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+.memory-form label {
+  display: block;
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.memory-form textarea {
+  width: 100%;
+  margin-top: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.memory-form textarea:focus {
+  outline: none;
+  border-color: var(--accent-2);
+}
+
+.memory-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.memory-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.memory-card:hover {
+  border-color: var(--accent-2);
+  transform: translateY(-1px);
+}
+
+.memory-card-text {
+  font-size: 16px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  padding-right: 28px;
+}
+
+.memory-card-translation {
+  margin-top: 10px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.memory-card-meta {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.memory-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.practice-hint {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 14px;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.success-text { color: var(--success); }
+.error-text { color: var(--danger); }
+
 .video-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -787,6 +897,7 @@ body.auth-pending .container {
 @media (max-width: 640px) {
   .topbar-inner { flex-direction: column; gap: 12px; align-items: stretch; }
   .stats { max-width: none; }
+  .memory-layout { grid-template-columns: 1fr; }
   .video-grid { grid-template-columns: 1fr; }
   .tabs { top: 0; position: static; }
 }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Language Learning — Video Tracker</title>
+  <title>JapApp — Translation Memory</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="auth-pending">
@@ -27,8 +27,8 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
-        <h1>Language Learning</h1>
-        <span class="tagline">Watch. Track. Learn.</span>
+        <h1>JapApp</h1>
+        <span class="tagline">Translate. Recall. Remember.</span>
       </div>
       <div class="user-menu">
         <span id="currentUser"></span>
@@ -55,15 +55,49 @@
 
   <nav class="tabs">
     <div class="tabs-inner">
-      <button class="tab active" data-tab="collection">My Collection</button>
-      <button class="tab" data-tab="search">Search</button>
+      <button class="tab active" data-tab="memory">Texts</button>
+      <button class="tab" data-tab="collection">YouTube Collection</button>
+      <button class="tab" data-tab="search">YouTube Search</button>
       <button class="tab" data-tab="history">Watch History</button>
     </div>
   </nav>
 
   <main class="container">
+    <!-- Memory tab -->
+    <section id="memoryPanel" class="tab-panel active">
+      <div class="memory-layout">
+        <section class="memory-entry">
+          <div class="toolbar">
+            <h2>Texts to remember</h2>
+          </div>
+          <form id="memoryForm" class="memory-form">
+            <label>
+              Japanese text
+              <textarea id="memoryJapanese" rows="5" required></textarea>
+            </label>
+            <label>
+              Translation
+              <textarea id="memoryTranslation" rows="4" required></textarea>
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="btn primary" id="memorySubmit">Save text</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="memory-list-wrap">
+          <div class="toolbar">
+            <h2>Saved texts</h2>
+            <span class="muted" id="memoryCount"></span>
+          </div>
+          <section class="memory-list" id="memoryList"></section>
+          <p class="empty-hint" id="memoryEmpty" hidden>No texts yet.</p>
+        </section>
+      </div>
+    </section>
+
     <!-- Collection tab -->
-    <section id="collectionPanel" class="tab-panel active">
+    <section id="collectionPanel" class="tab-panel">
       <div class="toolbar">
         <h2>Your videos</h2>
         <button class="btn" id="addVideoBtn">+ Add by URL</button>
@@ -170,6 +204,27 @@
         <div class="form-actions">
           <button type="button" class="btn" data-close>Cancel</button>
           <button type="submit" class="btn primary" id="transcriptSubmit">Rate transcript</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Practice text modal -->
+  <div class="modal" id="practiceModal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-content form-modal practice-modal">
+      <button class="modal-close" data-close aria-label="Close">&times;</button>
+      <h3>Recall the original</h3>
+      <form id="practiceForm">
+        <div class="practice-hint" id="practiceTranslation"></div>
+        <label>
+          Japanese text
+          <textarea id="practiceAnswer" rows="5" required></textarea>
+        </label>
+        <p class="form-hint" id="practiceResult"></p>
+        <div class="form-actions">
+          <button type="button" class="btn" data-close>Cancel</button>
+          <button type="submit" class="btn primary" id="practiceSubmit">Check</button>
         </div>
       </form>
     </div>

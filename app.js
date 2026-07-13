@@ -9,6 +9,10 @@ const API = {
   register:    (body)                              => fetchJSON('/api/auth/register', { method: 'POST', body }),
   login:       (body)                              => fetchJSON('/api/auth/login', { method: 'POST', body }),
   logout:      ()                                  => fetchJSON('/api/auth/logout', { method: 'POST' }),
+  listMemory:  ()                                  => fetchJSON('/api/memory-texts'),
+  addMemory:   (body)                              => fetchJSON('/api/memory-texts', { method: 'POST', body }),
+  removeMemory:(id)                                => fetch(`/api/memory-texts/${id}`, { method: 'DELETE' }),
+  practiceMemory:(id, correct)                     => fetchJSON(`/api/memory-texts/${id}/practice`, { method: 'POST', body: { correct } }),
   listVideos:  ()                                  => fetchJSON('/api/videos'),
   addVideo:    (body)                              => fetchJSON('/api/videos', { method: 'POST', body }),
   removeVideo: (id)                                => fetch(`/api/videos/${id}`, { method: 'DELETE' }),
@@ -36,7 +40,7 @@ async function fetchJSON(url, { method = 'GET', body } = {}) {
       data = JSON.parse(text);
     } catch (_) {
       data = {
-        error: `Non-JSON response (${res.status}): ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()}`,
+        error: summarizeNonJSONResponse(res.status, text),
       };
     }
   }
@@ -49,6 +53,19 @@ async function fetchJSON(url, { method = 'GET', body } = {}) {
     throw err;
   }
   return data;
+}
+
+function summarizeNonJSONResponse(status, text) {
+  const cleaned = (text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const lower = cleaned.toLowerCase();
+  if (status === 502 && (lower.includes('no healthy service') || lower.includes('bad gateway'))) {
+    return 'Koyeb returned 502: no healthy service was available. Wait for the deploy to finish or check the service logs, then try again.';
+  }
+  if (status === 503) {
+    return 'The service is temporarily unavailable. Wait a moment and try again.';
+  }
+  const snippet = cleaned.length > 240 ? cleaned.slice(0, 240) + '...' : cleaned;
+  return `Unexpected non-JSON response (${status}): ${snippet || 'empty response'}`;
 }
 
 let authMode = 'login';
@@ -119,6 +136,10 @@ function relativeTime(sqlTimestamp) {
 function genToken() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function normalizeRecallText(text) {
+  return (text || '').replace(/\s+/g, '').trim();
 }
 
 function extractYouTubeId(input) {
@@ -278,15 +299,56 @@ function searchCard(r) {
   return card;
 }
 
+function memoryCard(item) {
+  const card = document.createElement('article');
+  card.className = 'memory-card';
+  card.dataset.id = item.id;
+  const practiced = item.practiced_count || 0;
+  const correct = item.correct_count || 0;
+  const accuracy = practiced ? Math.round((correct / practiced) * 100) : null;
+  card.innerHTML = `
+    <button class="icon-btn memory-delete" data-action="remove-memory" data-id="${item.id}" title="Remove">&times;</button>
+    <div class="memory-card-text"></div>
+    <div class="memory-card-translation"></div>
+    <div class="memory-card-meta">
+      <span>${practiced ? `${correct}/${practiced} correct` : 'Not practiced yet'}</span>
+      <span>${accuracy == null ? '' : `${accuracy}%`}</span>
+    </div>
+  `;
+  card.querySelector('.memory-card-text').textContent = item.japanese_text;
+  card.querySelector('.memory-card-translation').textContent = item.translation;
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('[data-action]')) return;
+    openPracticeModal(item.id);
+  });
+  return card;
+}
+
 // ---------- State ----------
 let videos = [];        // local cache of /api/videos
 let lastSearch = [];    // last search results
+let memoryItems = [];
 
 // ---------- Renderers ----------
 const grid = document.getElementById('videoGrid');
 const emptyHint = document.getElementById('emptyHint');
 const searchGrid = document.getElementById('searchGrid');
 const searchHint = document.getElementById('searchHint');
+const memoryList = document.getElementById('memoryList');
+const memoryEmpty = document.getElementById('memoryEmpty');
+const memoryCount = document.getElementById('memoryCount');
+
+async function refreshMemory() {
+  memoryItems = await API.listMemory();
+  memoryList.innerHTML = '';
+  memoryCount.textContent = memoryItems.length ? `${memoryItems.length} text${memoryItems.length === 1 ? '' : 's'}` : '';
+  if (!memoryItems.length) {
+    memoryEmpty.hidden = false;
+    return;
+  }
+  memoryEmpty.hidden = true;
+  for (const item of memoryItems) memoryList.appendChild(memoryCard(item));
+}
 
 async function refreshVideos() {
   videos = await API.listVideos();
@@ -389,6 +451,10 @@ document.addEventListener('click', async (e) => {
     await API.removeVideo(id);
     await refreshVideos();
     await refreshStats();
+  } else if (action === 'remove-memory') {
+    if (!confirm('Remove this text?')) return;
+    await API.removeMemory(id);
+    await refreshMemory();
   } else if (action === 'rate') {
     btn.disabled = true;
     const prevHTML = btn.innerHTML;
@@ -547,16 +613,29 @@ const playerModal = document.getElementById('playerModal');
 const addModal = document.getElementById('addModal');
 const goalModal = document.getElementById('goalModal');
 const transcriptModal = document.getElementById('transcriptModal');
+const practiceModal = document.getElementById('practiceModal');
 let transcriptVideoId = null;
+let practiceItemId = null;
 
 function openTranscriptModal(videoId, reason = '') {
   transcriptVideoId = videoId;
   document.getElementById('transcriptForm').reset();
   document.getElementById('transcriptError').textContent = reason
-    ? `Automatic transcript fetch failed: ${reason}`
+    ? `Automatic transcript fetch failed: ${reason} You can paste a transcript below once the app is reachable.`
     : '';
   openModal(transcriptModal);
   setTimeout(() => document.getElementById('transcriptText').focus(), 50);
+}
+
+function openPracticeModal(itemId) {
+  const item = memoryItems.find(x => String(x.id) === String(itemId));
+  if (!item) return;
+  practiceItemId = item.id;
+  document.getElementById('practiceTranslation').textContent = item.translation;
+  document.getElementById('practiceAnswer').value = '';
+  document.getElementById('practiceResult').textContent = '';
+  openModal(practiceModal);
+  setTimeout(() => document.getElementById('practiceAnswer').focus(), 50);
 }
 
 async function openPlayer(videoId) {
@@ -620,6 +699,7 @@ document.addEventListener('keydown', (e) => {
   else if (!addModal.hidden) closeModal(addModal);
   else if (!goalModal.hidden) closeModal(goalModal);
   else if (!transcriptModal.hidden) closeModal(transcriptModal);
+  else if (!practiceModal.hidden) closeModal(practiceModal);
 });
 
 // ---------- Tabs ----------
@@ -634,6 +714,8 @@ document.querySelectorAll('.tab').forEach(tab => {
       setTimeout(() => document.getElementById('searchInput').focus(), 50);
     } else if (name === 'history') {
       refreshHistory();
+    } else if (name === 'memory') {
+      refreshMemory();
     }
   });
 });
@@ -669,6 +751,26 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
   setSignedInUser('');
   const status = await API.authStatus();
   showAuth(true, status);
+});
+
+document.getElementById('memoryForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const japanese = document.getElementById('memoryJapanese').value.trim();
+  const translation = document.getElementById('memoryTranslation').value.trim();
+  const btn = document.getElementById('memorySubmit');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    await API.addMemory({ japanese_text: japanese, translation });
+    document.getElementById('memoryForm').reset();
+    await refreshMemory();
+    toast('Text saved', 'success');
+  } catch (err) {
+    toast(`Save failed: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save text';
+  }
 });
 
 document.getElementById('addVideoBtn').addEventListener('click', () => {
@@ -738,6 +840,25 @@ document.getElementById('transcriptForm').addEventListener('submit', async (e) =
   }
 });
 
+document.getElementById('practiceForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const item = memoryItems.find(x => String(x.id) === String(practiceItemId));
+  if (!item) return;
+  const answer = document.getElementById('practiceAnswer').value;
+  const correct = normalizeRecallText(answer) === normalizeRecallText(item.japanese_text);
+  const result = document.getElementById('practiceResult');
+  result.textContent = correct ? 'Correct.' : `Not yet. Original: ${item.japanese_text}`;
+  result.className = `form-hint ${correct ? 'success-text' : 'error-text'}`;
+  await API.practiceMemory(item.id, correct);
+  await refreshMemory();
+  if (correct) {
+    setTimeout(() => {
+      closeModal(practiceModal);
+      practiceItemId = null;
+    }, 600);
+  }
+});
+
 document.getElementById('resetBtn').addEventListener('click', async () => {
   if (!confirm('Reset all tracked time? Your video list is kept.')) return;
   await API.reset();
@@ -794,7 +915,7 @@ window.addEventListener('pagehide', () => {
     }
     setSignedInUser(status.username);
     showAuth(false);
-    await Promise.all([refreshVideos(), refreshStats()]);
+    await Promise.all([refreshMemory(), refreshVideos(), refreshStats()]);
   } catch (err) {
     toast(`Failed to load: ${err.message}`, 'error');
     showAuth(true);
