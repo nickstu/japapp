@@ -46,6 +46,7 @@ from tkinter import (
     StringVar,
     Text,
     Tk,
+    TkVersion,
     filedialog,
     messagebox,
     scrolledtext,
@@ -62,7 +63,7 @@ APP_NAME = "JapaneseTTSStudy"
 PROVIDER = "gemini"
 MODEL = "gemini-3.1-flash-tts-preview"
 SPEECH_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-DEFAULT_DIALOGUE_PATH = Path(__file__).with_name("dialogo_giapponese.txt")
+DEFAULT_DIALOGUE_PATH = Path(__file__).with_name("dialogo_mono.txt")
 OUTPUT_DIR = Path(__file__).with_name("audio_output")
 VOICE_OPTIONS = [
     "Kore",
@@ -101,6 +102,10 @@ GRAMMAR_PATTERNS = {
     "がち": re.compile(r"がち"),
     "気味": re.compile(r"気味"),
     "っぽく": re.compile(r"っぽく|っぽい|っぽさ"),
+    "ものなら": re.compile(r"(?:もの|もん)なら"),
+    "ものだから": re.compile(r"(?:もの|もん)(?:だ|です)から"),
+    "ものの": re.compile(r"ものの"),
+    "もの(理由)": re.compile(r"(?:もの|もん)(?=[。、！？]|$)"),
 }
 
 
@@ -192,6 +197,22 @@ def sentence_turns_from_turns(turns: list[Turn]) -> list[Turn]:
     for turn in turns:
         sentences.extend(split_turn_into_sentences(turn))
     return sentences
+
+
+def merge_consecutive_turns(turns: list[Turn]) -> list[Turn]:
+    """Join adjacent turns that share a speaker, so each row is a new voice.
+
+    Transcription rows are one per turn. When the same speaker has two lines in
+    a row they must not become two rows: the audio gives no cue for where the
+    boundary falls, so the row split would have to be guessed.
+    """
+    merged: list[Turn] = []
+    for turn in turns:
+        if merged and merged[-1].speaker == turn.speaker:
+            merged[-1] = Turn(turn.speaker, merged[-1].text + turn.text)
+        else:
+            merged.append(turn)
+    return merged
 
 
 def transcript_from_turns(turns: list[Turn]) -> str:
@@ -379,11 +400,32 @@ def wav_duration_seconds(wav_path: Path) -> float:
         return wav.getnframes() / float(wav.getframerate())
 
 
+def init_mixer() -> bool:
+    """Start the SDL mixer, tolerating machines with no usable audio device.
+
+    On Linux the mixer raises instead of falling back when no PulseAudio /
+    PipeWire / ALSA sink is reachable, so every caller has to cope with a
+    missing device rather than assume playback is available.
+    """
+    if pygame.mixer.get_init():
+        return True
+    try:
+        pygame.mixer.init()
+    except pygame.error:
+        return False
+    return True
+
+
 def audio_duration_seconds(audio_path: Path) -> float:
     wav_path = audio_path.with_suffix(".wav") if audio_path.suffix.lower() != ".wav" else audio_path
     if wav_path.exists():
         return wav_duration_seconds(wav_path)
-    sound = pygame.mixer.Sound(str(audio_path))
+    if not init_mixer():
+        return 0.0
+    try:
+        sound = pygame.mixer.Sound(str(audio_path))
+    except pygame.error:
+        return 0.0
     return float(sound.get_length())
 
 
@@ -524,7 +566,7 @@ class JapaneseTTSApp:
     def __init__(self, root: Tk) -> None:
         self.root = root
         self.root.title("Japanese TTS Study")
-        self.root.geometry("980x720")
+        self.mixer_warning_shown = False
         self.log_queue: queue.Queue = queue.Queue()
         self.turns: list[Turn] = []
         self.dialogue_text = ""
@@ -555,12 +597,25 @@ class JapaneseTTSApp:
         self.audio_time_var = StringVar(value="00:00 / 00:00")
 
         self._build_ui()
+        self._apply_window_size()
         self.load_dialogue()
         self.refresh_audio_list()
         if self.api_key_var.get():
             self.log(f"API key caricata dalla cache: {masked_key(self.api_key_var.get())}")
         self.root.after(150, self.drain_log_queue)
         self.root.after(250, self.update_audio_progress)
+
+    def _apply_window_size(self) -> None:
+        """Size the window from the widgets' own requests.
+
+        Font metrics differ per platform (and per desktop theme on Linux), so a
+        hard-coded geometry can clip controls. Ask Tk what the layout needs and
+        never open — or let the user shrink — below that.
+        """
+        self.root.update_idletasks()
+        width = max(980, self.root.winfo_reqwidth())
+        self.root.geometry(f"{width}x720")
+        self.root.minsize(width, 520)
 
     def _build_ui(self) -> None:
         self.notebook = ttk.Notebook(self.root)
@@ -587,23 +642,28 @@ class JapaneseTTSApp:
         Label(status_frame, textvariable=self.dialogue_status_var).pack(anchor="w")
         Label(status_frame, textvariable=self.generated_audio_var).pack(anchor="w", pady=(4, 0))
 
-        controls = Frame(self.generate_tab, padx=10, pady=8)
+        # Two rows instead of one: the single row needed ~1120px with Linux font
+        # metrics and pushed "Genera audio" outside a 980px window.
+        key_row = Frame(self.generate_tab, padx=10, pady=6)
+        key_row.pack(fill=X)
+
+        Label(key_row, text="Gemini API key").pack(side=LEFT)
+        Entry(key_row, textvariable=self.api_key_var, show="*", width=34).pack(side=LEFT, padx=(6, 10))
+        Checkbutton(key_row, text="cache", variable=self.cache_key_var).pack(side=LEFT)
+        Button(key_row, text="Salva key", command=self.save_key_from_field).pack(side=LEFT, padx=(6, 0))
+
+        controls = Frame(self.generate_tab, padx=10, pady=6)
         controls.pack(fill=X)
 
-        Label(controls, text="Gemini API key").pack(side=LEFT)
-        Entry(controls, textvariable=self.api_key_var, show="*", width=34).pack(side=LEFT, padx=(6, 10))
-        Checkbutton(controls, text="cache", variable=self.cache_key_var).pack(side=LEFT)
-        Button(controls, text="Salva key", command=self.save_key_from_field).pack(side=LEFT, padx=(6, 0))
+        Button(controls, text="Genera audio", command=self.generate_audio).pack(side=RIGHT)
 
-        Label(controls, text="Voce 1").pack(side=LEFT, padx=(14, 4))
-        OptionMenu(controls, self.voice_teacher_var, *VOICE_OPTIONS).pack(side=LEFT)
+        Label(controls, text="Voce 1").pack(side=LEFT)
+        OptionMenu(controls, self.voice_teacher_var, *VOICE_OPTIONS).pack(side=LEFT, padx=(4, 0))
         Label(controls, text="Voce 2").pack(side=LEFT, padx=(12, 4))
         OptionMenu(controls, self.voice_student_var, *VOICE_OPTIONS).pack(side=LEFT)
         Label(controls, text="velocità").pack(side=LEFT, padx=(12, 4))
         Entry(controls, textvariable=self.speed_var, width=5).pack(side=LEFT)
         Checkbutton(controls, text="riusa audio", variable=self.reuse_audio_var).pack(side=LEFT, padx=(12, 0))
-
-        Button(controls, text="Genera audio", command=self.generate_audio).pack(side=RIGHT)
 
         log_frame = Frame(self.generate_tab, padx=10)
         log_frame.pack(fill=BOTH, expand=True, pady=(0, 10))
@@ -658,6 +718,34 @@ class JapaneseTTSApp:
         )
         self.transcribe_canvas.pack(side=LEFT, fill=BOTH, expand=True)
         scrollbar.pack(side=RIGHT, fill=Y)
+        self.bind_scroll_wheel(self.transcribe_canvas)
+        self.bind_scroll_wheel(self.transcribe_rows_frame)
+
+    def bind_scroll_wheel(self, widget) -> None:
+        """Wheel-scroll the sentence list from any widget inside it.
+
+        Tk 8.6 on X11 reports the wheel as Button-4/Button-5 rather than the
+        <MouseWheel> event Windows and macOS send. Tk 9.0 emits <MouseWheel>
+        everywhere and reuses Button-4/Button-5 for the mouse's side buttons,
+        so those must not be bound there.
+        """
+        widget.bind("<MouseWheel>", self.on_scroll_wheel)
+        if TkVersion < 9.0:
+            widget.bind("<Button-4>", self.on_scroll_wheel)
+            widget.bind("<Button-5>", self.on_scroll_wheel)
+
+    def on_scroll_wheel(self, event):
+        if event.num == 4:
+            steps = -1
+        elif event.num == 5:
+            steps = 1
+        elif event.delta:
+            # Windows and Tk 9.0 deliver multiples of 120; macOS smaller values.
+            steps = -1 if event.delta > 0 else 1
+        else:
+            return None
+        self.transcribe_canvas.yview_scroll(steps, "units")
+        return "break"
 
     def choose_dialogue(self) -> None:
         path = filedialog.askopenfilename(
@@ -852,10 +940,10 @@ class JapaneseTTSApp:
             turns = list(self.turns)
         if not turns:
             turns = parse_dialogue(DEFAULT_DIALOGUE_PATH.read_text(encoding="utf-8"))
-        sentence_turns = sentence_turns_from_turns(turns)
-        self.transcription_turns = sentence_turns
-        self.build_transcription_rows(sentence_turns)
-        self.transcription_status_var.set(f"Pronto: {audio_path.name} · {len(sentence_turns)} frasi")
+        rows = merge_consecutive_turns(turns)
+        self.transcription_turns = rows
+        self.build_transcription_rows(rows)
+        self.transcription_status_var.set(f"Pronto: {audio_path.name} · {len(rows)} battute")
 
     def load_selected_audio_for_player(self) -> None:
         audio_path = self.selected_audio_path()
@@ -885,7 +973,8 @@ class JapaneseTTSApp:
         for index, turn in enumerate(turns):
             row = Frame(self.transcribe_rows_frame, pady=3)
             row.pack(fill=X)
-            Label(row, text=turn.speaker, width=8, anchor="e").pack(side=LEFT, padx=(0, 8))
+            speaker_label = Label(row, text=turn.speaker, width=8, anchor="e")
+            speaker_label.pack(side=LEFT, padx=(0, 8))
             entry = Text(row, wrap="none", height=1, padx=5, pady=2, undo=True)
             entry.pack(side=LEFT, fill=X, expand=True)
             entry.tag_configure("normal", foreground="#222222", background="white")
@@ -894,6 +983,8 @@ class JapaneseTTSApp:
 
             entry.bind("<Return>", lambda event, row_index=index: self.submit_transcription_row(row_index))
             entry.bind("<KeyPress>", lambda event, widget=entry: self.clear_row_diff_on_edit(event, widget))
+            for widget in (row, speaker_label, entry):
+                self.bind_scroll_wheel(widget)
             self.transcription_rows.append({"entry": entry, "turn": turn})
 
         if self.transcription_rows:
@@ -936,9 +1027,19 @@ class JapaneseTTSApp:
             return mp3_path
         return audio_path
 
-    def ensure_mixer(self) -> None:
-        if not pygame.mixer.get_init():
-            pygame.mixer.init()
+    def ensure_mixer(self) -> bool:
+        if init_mixer():
+            return True
+        if not self.mixer_warning_shown:
+            self.mixer_warning_shown = True
+            self.log("Audio non disponibile: nessun dispositivo di riproduzione trovato.")
+            messagebox.showwarning(
+                "Audio non disponibile",
+                "Non riesco ad aprire un dispositivo audio.\n"
+                "Su Linux serve un server audio attivo (PipeWire, PulseAudio o ALSA).\n"
+                "Puoi comunque generare e salvare gli MP3.",
+            )
+        return False
 
     def current_audio_position(self) -> float:
         if not self.audio_loaded:
@@ -950,11 +1051,17 @@ class JapaneseTTSApp:
     def play_from(self, offset: float) -> None:
         if not self.current_playback_path:
             return
-        self.ensure_mixer()
+        if not self.ensure_mixer():
+            return
         offset = max(0.0, min(offset, max(self.audio_duration - 0.05, 0.0)))
         pygame.mixer.music.stop()
         pygame.mixer.music.load(str(self.current_playback_path))
-        pygame.mixer.music.play(start=offset)
+        try:
+            pygame.mixer.music.play(start=offset)
+        except (pygame.error, NotImplementedError):
+            # Some SDL_mixer builds cannot seek this codec; start from zero.
+            pygame.mixer.music.play()
+            offset = 0.0
         self.playback_offset = offset
         self.playback_started_at = time.monotonic()
         self.audio_loaded = True

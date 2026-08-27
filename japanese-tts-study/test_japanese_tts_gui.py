@@ -155,6 +155,31 @@ class JapaneseTTSGuiTests(unittest.TestCase):
         self.assertEqual(sentences[0].speaker, "美咲")
         self.assertEqual(sentences[0].text, "ねえ、今日の田中さん、なんか疲れ気味じゃなかった？")
 
+    def test_transcription_rows_alternate_speakers(self) -> None:
+        turns = [
+            app.Turn("美咲", "ねえ、聞いてる？"),
+            app.Turn("蓮", "聞いてるよ。"),
+            app.Turn("蓮", "ちょっと考えてただけ。"),
+            app.Turn("美咲", "ならいいけど。"),
+        ]
+        rows = app.merge_consecutive_turns(turns)
+        self.assertEqual([row.speaker for row in rows], ["美咲", "蓮", "美咲"])
+        self.assertEqual(rows[1].text, "聞いてるよ。ちょっと考えてただけ。")
+        speakers = [row.speaker for row in rows]
+        self.assertTrue(all(a != b for a, b in zip(speakers, speakers[1:])))
+
+    def test_multi_sentence_turn_stays_one_row(self) -> None:
+        for name in ("dialogo_mono.txt", "dialogo_giapponese.txt"):
+            turns = app.parse_dialogue(Path(name).read_text(encoding="utf-8"))
+            rows = app.merge_consecutive_turns(turns)
+            speakers = [row.speaker for row in rows]
+            self.assertTrue(
+                all(a != b for a, b in zip(speakers, speakers[1:])),
+                f"{name} produced two consecutive rows for one speaker",
+            )
+            # A turn spanning several sentences must not be split up.
+            self.assertLess(len(rows), len(app.sentence_turns_from_turns(turns)))
+
     def test_first_sentence_accepts_no_punctuation(self) -> None:
         expected = "今日は、話し方や様子を表す表現を練習しましょう。"
         typed = "今日は話し方や様子を表す表現を練習しましょう"
@@ -175,6 +200,22 @@ class JapaneseTTSGuiTests(unittest.TestCase):
         self.assertGreaterEqual(counts["がち"], 3)
         self.assertGreaterEqual(counts["気味"], 2)
         self.assertGreaterEqual(counts["っぽく"], 3)
+
+    def test_mono_dialogue_contains_target_grammar(self) -> None:
+        text = Path("dialogo_mono.txt").read_text(encoding="utf-8")
+        turns = app.parse_dialogue(text)
+        counts = {
+            name: sum(1 for turn in turns if pattern.search(turn.text))
+            for name, pattern in app.GRAMMAR_PATTERNS.items()
+        }
+        self.assertGreaterEqual(counts["ものなら"], 4)
+        self.assertGreaterEqual(counts["ものだから"], 3)
+        self.assertGreaterEqual(counts["ものの"], 3)
+        self.assertGreaterEqual(counts["もの(理由)"], 3)
+        # The two dialogues stay thematically separate, so the focus line for
+        # one never picks up the other's tags.
+        self.assertEqual(counts["がち"], 0)
+        self.assertEqual(counts["気味"], 0)
 
 
 if __name__ == "__main__":
