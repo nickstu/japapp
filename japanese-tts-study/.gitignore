@@ -1,0 +1,7 @@
+.venv/
+.uv-cache/
+.uv-python/
+__pycache__/
+*.py[cod]
+audio_output/
+japanese_tts_launcher.log
